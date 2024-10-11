@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style type="text/css">
+        html,
+        body {
+            margin: 0;
+            overflow: hidden;
+            height: 100%;
+        }
+
+        #myCanvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        #stats {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background-color: gray;
+            padding: 5px;
+            font-size: 25px;
+        }
+    </style>
+
+    <!-- From: http://paperjs.org/tutorials/getting-started/using-javascript-directly/ -->
+    <!-- Load the Paper.js library -->
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js"></script>
+    <!-- Define inlined JavaScript -->
+    <script type="text/javascript">
+        // Only execute our code once the DOM is ready.
+        window.onload = function() {
+
+            let cursorType = "normal";
+            let circles = []; 
+            let targetCircle = null; 
+            let trialStartTime = null; 
+            let totalTime = 0;   
+            let numTrials = 0; 
+            let averageTime = 0; 
+            let numMisses = 0; 
+            let currentBubbleTarget = null; 
+
+            // Get a reference to the canvas object
+            const canvas = document.getElementById('myCanvas');
+
+            // Create an empty project and a view for the canvas
+            paper.setup(canvas);
+
+            // Function to create a grid of (row x col) circles in the middle of the screeen
+            function drawCircleGrid(rows, columns) {
+                for (let i = 0; i < columns; i++) {
+                    for (let j = 0; j < rows; j++) {
+                        const centerX = paper.view.bounds.width * (i+1) / (columns+1);
+                        const centerY = paper.view.bounds.height * (j+1) / (rows + 1); 
+                        const circle = new paper.Path.Circle({
+                            center: new paper.Point(centerX, centerY),
+                            radius: 20,
+                            fillColor: 'white',
+                            strokeColor: 'green'
+                        });
+                        circles.push(circle);
+                    }
+                }
+                // Draw the view:
+                paper.view.draw();
+            }
+            drawCircleGrid(4, 5);
+
+            // update current stats
+            function updateStats() {
+                document.getElementById('stats').innerHTML = `
+                    Cursor Mode: ${cursorType}<br>
+                    Trials: ${numTrials}<br>
+                    Misses: ${numMisses}<br>
+                    Average Time: ${averageTime.toFixed(2)}s
+                `;
+            }
+            updateStats();
+
+            // select a random circle as the target
+            function selectRandomCircle() {
+                // unselect the previous target circle
+                if (targetCircle) {
+                    targetCircle.fillColor = 'white';
+                }
+                let index = Math.floor(Math.random() * circles.length);
+                targetCircle = circles[index];
+                targetCircle.fillColor = 'red';
+                trialStartTime = new Date();
+            }
+            selectRandomCircle();
+
+            function onItemClicked(item) {
+                if (item === targetCircle) {
+                    // target circle is clicked, stop timing for this trial
+                    let trialEndTime = new Date();
+                    let trialTime = (trialEndTime - trialStartTime) / 1000;
+                    totalTime += trialTime;
+                    numTrials += 1;
+                    console.log("Trial: ", numTrials);
+                    console.log("Time: ", trialTime);
+                    averageTime = totalTime / numTrials;
+                    updateStats();
+                    item.fillColor = 'green';
+
+                    selectRandomCircle();
+                } else {
+                    console.log("Missed :(");
+                    // clicked on something other than the target circle
+                    numMisses += 1;
+                    updateStats();
+                }
+            }
+
+            // create the bubble cursor circle 
+            let bubbleCircle = new paper.Path.Circle({
+                center: new paper.Point(0, 0),
+                radius: 10,
+                fillColor: new paper.Color(0, 0, 0, 0.3),
+                strokeColor: 'black',
+                visible: false
+            });
+
+            // update the bubble cursor
+            function updateBubbleCursor(event) {
+                // compute intersecting distances and containment distances for all targets
+                let intersectDistances = [];
+                circles.forEach(circle => {
+                    let di = event.point.getDistance(circle.position);
+                    let ri = circle.bounds.width / 2;
+                    let IntDi = Math.max(di - ri, 0);
+                    let ConDi = di + ri;
+                    intersectDistances.push({
+                        circle: circle, 
+                        intersectDistance: IntDi, 
+                        containDistance: ConDi
+                    });
+                });
+                intersectDistances.sort((a, b) => a.intersectDistance - b.intersectDistance);
+
+                // get the closest target Ti and second closest target Tj
+                let Ti = intersectDistances[0].circle;
+                let IntDi = intersectDistances[0].intersectDistance;
+                let ConDi = intersectDistances[0].containDistance;
+                let Tj = intersectDistances[1].circle;
+                let IntDj = intersectDistances[1].intersectDistance;
+
+                // calculate new radius/width
+                let radius = Math.min(ConDi, IntDj);
+
+                // replace the bubble cursor
+                bubbleCircle.remove();
+
+                bubbleCircle = new paper.Path.Circle({
+                    center: event.point,
+                    radius: radius,
+                    fillColor: new paper.Color(0, 0, 0, 0.2),
+                    strokeColor: 'black',
+                });
+
+                currentBubbleTarget = Ti;
+            }
+
+            function bubbleCursor(event) {
+                if (currentBubbleTarget) {
+                    onItemClicked(currentBubbleTarget);
+                } else {
+                    numMisses +=1;
+                }
+            }
+
+            function normalCursor(event) {
+                const hitOptions = {
+                    fill: true,
+                    tolerance: 0 
+                };
+                const hitResult = paper.project.hitTest(event.point, hitOptions);
+                if (hitResult) {
+                    onItemClicked(hitResult.item);
+                } else {
+                    numMisses +=1;
+                }
+            };
+
+            paper.view.onMouseMove = function onMouseMove(event) {
+                if (cursorType === "bubble") {
+                    updateBubbleCursor(event);
+                } else {
+                    bubbleCircle.visible = false;
+                }
+            };
+
+            paper.view.onMouseDown = function onMouseDown(event) {
+                if (cursorType === "normal") {
+                    normalCursor(event); 
+                } else if (cursorType === "bubble") {
+                    bubbleCursor(event); 
+                }
+            };
+
+            function resetVariables() {
+                totalTime = 0;
+                averageTime = 0;
+                numTrials = 0;
+                numMisses = 0;
+                if (cursorType === 'bubble') {
+                    bubbleCursor.visible = true;
+                } else {
+                    bubbleCursor.visible = false;
+                }
+            }
+
+            window.addEventListener('keydown', function(event) {
+                if (event.key === 'n') {
+                    console.log("Normal Cursor");
+                    cursorType = 'normal';
+                    resetVariables()
+                    updateStats();
+                    selectRandomCircle();
+                } else if (event.key === 'b') {
+                    console.log("Bubble Cursor");
+                    cursorType = 'bubble';
+                    resetVariables()
+                    updateStats();
+                    selectRandomCircle();
+                }
+            });
+        }
+    </script>
+</head>
+<body>
+    <canvas id="myCanvas"></canvas>
+    <div id="stats"></div>
+</body>
+</html>
